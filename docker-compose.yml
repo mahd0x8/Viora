@@ -1,6 +1,8 @@
 services:
   viora:
-    build: .
+    build:
+      context: .
+      network: host      # RUN steps during build use the host's DNS stack
     ports:
       - "3000:3000"
     environment:

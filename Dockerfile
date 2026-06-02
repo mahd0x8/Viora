@@ -1,38 +1,35 @@
-# Stage 1 — production dependencies only (no devDeps)
-FROM node:20-alpine AS deps
+# syntax=docker/dockerfile:1
+# Stage 1 — install and build
+FROM node:20-slim AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
 
-# Stage 2 — full install + Next.js build
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+# Explicit filenames — no glob that might silently drop package-lock.json
+COPY package.json package-lock.json ./
+
+# Cache mount keeps downloaded packages across rebuilds; host network resolves DNS
+RUN --mount=type=cache,target=/root/.npm \
+    NODE_OPTIONS="--max-old-space-size=2048" npm ci --no-fund --no-audit
+
 COPY . .
-RUN npm run build
+RUN ./node_modules/.bin/next build
 
-# Stage 3 — lean production image
-FROM node:20-alpine AS runner
+# Stage 2 — production image
+FROM node:20-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Production node_modules (includes tsx — moved to dependencies)
-COPY --from=deps /app/node_modules ./node_modules
-
-# Next.js build output
-COPY --from=builder /app/.next ./.next
-
-# Static assets
-COPY --from=builder /app/public ./public
-
-# Files needed at runtime
-COPY --from=builder /app/server.ts ./server.ts
-COPY --from=builder /app/next.config.ts ./next.config.ts
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package-lock.json ./package-lock.json
+RUN npm prune --omit=dev
+
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/next.config.js ./next.config.js
 
 EXPOSE 3000
 
