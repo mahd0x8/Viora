@@ -22,7 +22,7 @@ export default function Home() {
     }
 
     setLoading(true);
-    const videoUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    const videoUrl = `/api/video?id=${fileId}`;
     const roomId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     sessionStorage.setItem(`viora-${roomId}`, videoUrl);
     router.push(`/room/${roomId}`);

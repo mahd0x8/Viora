@@ -131,7 +131,19 @@ export default function RoomClient({ roomId }: { roomId: string }) {
   }, [roomId]);
 
   const copyLink = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/room/${roomId}`);
+    const url = `${window.location.origin}/room/${roomId}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url);
+    } else {
+      const el = document.createElement('textarea');
+      el.value = url;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
