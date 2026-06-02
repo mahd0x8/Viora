@@ -71,15 +71,22 @@ jobs:
         env:
           IMAGE: ${{ env.IMAGE }}
 
+      # registry set and update are separate commands — update does not accept --registry-* flags
+      - name: Refresh GHCR credentials on the Container App
+        run: |
+          az containerapp registry set \
+            --name            "${{ vars.ACA_NAME }}" \
+            --resource-group  "${{ vars.ACA_RG }}" \
+            --server          ghcr.io \
+            --username        "${{ github.actor }}" \
+            --password        "${{ secrets.GHCR_TOKEN }}"
+
       - name: Update container image
         run: |
           az containerapp update \
-            --name            "${{ vars.ACA_NAME }}" \
-            --resource-group  "${{ vars.ACA_RG }}" \
-            --image           "${{ steps.image.outputs.name }}:${{ github.sha }}" \
-            --registry-server   ghcr.io \
-            --registry-username "${{ github.actor }}" \
-            --registry-password "${{ secrets.GHCR_TOKEN }}"
+            --name           "${{ vars.ACA_NAME }}" \
+            --resource-group "${{ vars.ACA_RG }}" \
+            --image          "${{ steps.image.outputs.name }}:${{ github.sha }}"
 
       - name: Print deployment URL
         run: |
