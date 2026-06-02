@@ -132,3 +132,138 @@ Viora/
 | `npm run build` | Build for production |
 | `npm start` | Start production server |
 | `npm run lint` | Run ESLint |
+
+---
+
+## CI/CD — Deploy to Azure Container Apps
+
+Every push to `main` builds a new Docker image, pushes it to GHCR, and deploys it to Azure Container Apps.
+
+```
+main branch push
+  └─► Build & push image → ghcr.io/<owner>/viora:<sha>
+        └─► az containerapp update → Azure Container App
+```
+
+### Prerequisites
+
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) with the Container Apps extension
+- An Azure subscription
+- This repo pushed to GitHub
+
+```bash
+# Install the Container Apps CLI extension (once)
+az extension add --name containerapp --upgrade
+az provider register --namespace Microsoft.App
+az provider register --namespace Microsoft.OperationalInsights
+```
+
+---
+
+### Step 1 — Create Azure resources (one-time)
+
+```bash
+# Variables — change these to your values
+LOCATION="eastus"
+RG="viora-rg"
+ENV="viora-env"
+APP="viora"
+
+# Resource group
+az group create --name $RG --location $LOCATION
+
+# Container Apps environment
+az containerapp env create \
+  --name $ENV \
+  --resource-group $RG \
+  --location $LOCATION
+
+# Container App (initial creation with GHCR credentials)
+# Replace GITHUB_USER with your GitHub username
+# Replace GHCR_PAT with the token you will create in Step 3
+az containerapp create \
+  --name $APP \
+  --resource-group $RG \
+  --environment $ENV \
+  --image ghcr.io/GITHUB_USER/viora:latest \
+  --registry-server ghcr.io \
+  --registry-username GITHUB_USER \
+  --registry-password GHCR_PAT \
+  --target-port 3000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 1 \
+  --cpu 0.5 \
+  --memory 1.0Gi \
+  --env-vars NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
+```
+
+> **Why `--max-replicas 1`?** Viora uses in-memory room state. Multiple replicas would not share state. Keep it at 1 unless you add a Redis Socket.io adapter.
+
+---
+
+### Step 2 — Create a Service Principal for GitHub Actions
+
+```bash
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+az ad sp create-for-rbac \
+  --name "viora-github-actions" \
+  --role contributor \
+  --scopes /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG \
+  --sdk-auth
+```
+
+Copy the full JSON output — you'll need it in the next step.
+
+---
+
+### Step 3 — Create a GitHub PAT for GHCR pulls
+
+Azure Container Apps needs a token to pull images from GHCR at deploy time.
+
+1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)**
+2. Generate a new token with the **`read:packages`** scope
+3. Copy the token value
+
+---
+
+### Step 4 — Add secrets and variables to GitHub
+
+Go to **GitHub → your repo → Settings → Secrets and variables → Actions**.
+
+**Secrets** (sensitive values):
+
+| Secret | Value |
+|---|---|
+| `AZURE_CREDENTIALS` | Full JSON from the `az ad sp create-for-rbac` output |
+| `GHCR_TOKEN` | GitHub PAT with `read:packages` scope (from Step 3) |
+
+**Variables** (non-sensitive config):
+
+| Variable | Value |
+|---|---|
+| `ACA_NAME` | `viora` (or whatever you named the Container App) |
+| `ACA_RG` | `viora-rg` (your resource group name) |
+
+---
+
+### Step 5 — Create the `production` environment (optional)
+
+The deploy job references a GitHub environment named `production`. You can use it to add manual approval gates before deployments.
+
+Go to **GitHub → your repo → Settings → Environments → New environment** → name it `production`.
+
+If you skip this, remove the `environment: production` line from `.github/workflows/deploy.yml`.
+
+---
+
+### How the workflow runs
+
+1. **Push to `main`** triggers the workflow
+2. **Build job** — checks out code, builds the Docker image, pushes two tags to GHCR:
+   - `ghcr.io/<owner>/viora:latest`
+   - `ghcr.io/<owner>/viora:<git-sha>`
+3. **Deploy job** — logs into Azure, runs `az containerapp update` to point the app at the new `<git-sha>`-tagged image, and prints the live URL
+
+The `<git-sha>` tag (not `latest`) is what gets deployed — this gives each deployment a unique, immutable tag so you can roll back to any previous commit by re-running its workflow run.
