@@ -389,6 +389,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
               ref={videoRef}
               src={videoUrl}
               controls
+              playsInline        // iOS Safari: play inline instead of forcing fullscreen
               className="w-full h-full object-contain"
               onPlay={handlePlay}
               onPause={handlePause}
