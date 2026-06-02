@@ -86,6 +86,16 @@ app.prepare().then(() => {
       socket.to(roomId).emit('seek', { currentTime });
     });
 
+    socket.on('chat-message', ({ roomId, sender, text, isSystem }: { roomId: string; sender: string; text: string; isSystem?: boolean }) => {
+      io.to(roomId).emit('chat-message', {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+        sender,
+        text,
+        timestamp: Date.now(),
+        isSystem: isSystem ?? false,
+      });
+    });
+
     socket.on('disconnecting', () => {
       for (const roomId of socket.rooms) {
         if (roomId === socket.id) continue;
